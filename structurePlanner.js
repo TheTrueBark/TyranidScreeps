@@ -2,6 +2,14 @@ function findOpenSpacesAround(room, point) {
     const terrain = room.getTerrain();
     let openSpaces = [];
 
+    // Generate a unique key for the point
+    const pointKey = point.x + "_" + point.y;
+
+    // Check if data is already in memory
+    if (room.memory.openSpaces && room.memory.openSpaces[pointKey]) {
+        return room.memory.openSpaces[pointKey].map(pos => new RoomPosition(pos.x, pos.y, room.name));
+    }
+
     // Define relative positions to check around the point
     const positionsToCheck = [
         { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
@@ -27,8 +35,28 @@ function findOpenSpacesAround(room, point) {
         }
     });
 
+    // Filter out the actual point itself
+    openSpaces = openSpaces.filter(pos => !(pos.x === point.x && pos.y === point.y));
+
+    // Save results in memory
+    room.memory.openSpaces = room.memory.openSpaces || {};
+    room.memory.openSpaces[pointKey] = openSpaces.map(pos => ({ x: pos.x, y: pos.y }));
+
     return openSpaces;
 }
+
+// Cashing open mining positions
+function cacheRoomMiningPositions(room) {
+    room.memory.miningPositions = {};
+
+    const sources = room.find(FIND_SOURCES);
+    sources.forEach(source => {
+        const openSpaces = findOpenSpacesAround(room, source.pos);
+        room.memory.miningPositions[source.id] = openSpaces.map(pos => ({ x: pos.x, y: pos.y }));
+    });
+}
+
+
 
 function placeExtensions(room) {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
@@ -66,4 +94,9 @@ function placeContainers(room) {
     }
 }
 
-module.exports = { placeExtensions, placeContainers, findOpenSpacesAround };
+module.exports = { 
+    placeExtensions,
+    placeContainers,
+    findOpenSpacesAround,
+    cacheRoomMiningPositions,
+};

@@ -7,7 +7,7 @@ const { needsChangelings, spawnChangeling } = require('./spawnManager');
 const memoryManager = require("./memoryManager");
 
 // Assuming placeExtensions and placeContainers are functions exported from structurePlanner.js
-const { placeExtensions, placeContainers } = require('./structurePlanner'); // Adjust the path as needed
+const { placeExtensions, placeContainers, cacheRoomMiningPositions } = require('./structurePlanner'); // Adjust the path as needed
 
 module.exports.loop = function () {
     // Memory Manager called first
@@ -34,6 +34,9 @@ module.exports.loop = function () {
                     spawnChangeling(spawns[0]);
                 }
             }
+
+            // Handles miner position caching
+            cacheRoomMiningPositions(room);
 
             // Handle miner position releasing
             allPurpose.releaseMiningPositions(room);

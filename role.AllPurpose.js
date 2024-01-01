@@ -17,9 +17,14 @@ function runCreep(creep) {
     }
 }
 
+// They are called "Changeling" as a creep
 function runChangeling(creep) {
-    // Check if the creep is full or needs to collect energy
-    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+    const minersPresent = _.filter(Game.creeps, c => c.memory.role === 'miner' && c.room.name === creep.room.name).length > 0;
+
+    if (minersPresent) {
+        // Switch to hauling behavior
+        runHauler(creep);
+    } else if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
         creep.memory.working = false;
     } else if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
         creep.memory.working = true;
@@ -39,17 +44,11 @@ function runChangeling(creep) {
                 creep.moveTo(target);
             }
         }
-    } else {
-        // Mine from the closest source
-        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
-        if (source && creep.harvest(source) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(source);
-        }
+
     }
 }
 
-
-
+// This is called "Ripper" as a creep
 function runMiner(creep) {
     // Ensure creep has a mining position claimed
     if (!creep.memory.miningPosition) {
@@ -68,21 +67,30 @@ function runMiner(creep) {
     }
 }
 
+function positionToString(pos) {
+    return pos.x + "," + pos.y;
+}
+
 
 function claimMiningPosition(room, currentPos) {
+    if (!room.memory.claimedMiningPositions) {
+        room.memory.claimedMiningPositions = {};
+    }
+
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
         const openSpaces = findOpenSpacesAround(room, source.pos);
         for (const openSpace of openSpaces) {
-            if (!room.memory.claimedMiningPositions || !room.memory.claimedMiningPositions[openSpace]) {
-                room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
-                room.memory.claimedMiningPositions[openSpace] = true;
+            const posKey = positionToString(openSpace);
+            if (!room.memory.claimedMiningPositions[posKey]) {
+                room.memory.claimedMiningPositions[posKey] = true;
                 return openSpace;
             }
         }
     }
     return currentPos; // Default to current position if no open spots are available
 }
+
 
 function releaseMiningPositions(room) {
     for (const name in Memory.creeps) {
@@ -96,7 +104,7 @@ function releaseMiningPositions(room) {
     }
 }
 
-
+// This is called "Termagant" as a creep
 function runHauler(creep) {
     if (creep.store.getFreeCapacity() > 0) {
         // Collect energy from containers or dropped resources
@@ -124,9 +132,11 @@ function runHauler(creep) {
     }
 }
 
+// This is called "Warrior" as a screep
 function runUpgrader(creep) {
     if (creep.store[RESOURCE_ENERGY] === 0) {
         // Collect energy logic...
+        collectEnergy(creep);
     } else {
         // Prioritize building specific structures
         const priorityTypes = [STRUCTURE_EXTENSION, STRUCTURE_CONTAINER, STRUCTURE_ROAD];
@@ -152,8 +162,44 @@ function runUpgrader(creep) {
     }
 }
 
+// Energy Collection Containers > Dropped > Miner
+function collectEnergy(creep) {
+    let source;
 
+    // Try to collect from containers first
+    source = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER &&
+                     s.store[RESOURCE_ENERGY] > 0
+    });
 
+    // If no container with energy, look for dropped resources
+    if (!source) {
+        source = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+            filter: r => r.resourceType === RESOURCE_ENERGY
+        });
+    }
+
+    // If no dropped energy, take directly from a miner
+    if (!source) {
+        source = creep.pos.findClosestByPath(FIND_MY_CREEPS, {
+            filter: c => c.memory.role === 'miner' && 
+                         c.store[RESOURCE_ENERGY] > 0
+        });
+    }
+
+    if (source) {
+        if (source instanceof Resource) {
+            if (creep.pickup(source) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(source);
+            }
+        } else if (creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE || 
+                   creep.harvest(source) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(source);
+        }
+    }
+}
+
+// This is called "Hormagaunt" as a creep
 function runRepairman(creep) {
     if (creep.store[RESOURCE_ENERGY] === 0) {
         // Collect energy from containers

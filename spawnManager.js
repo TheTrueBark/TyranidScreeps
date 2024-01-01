@@ -1,11 +1,22 @@
 const { findOpenSpacesAround } = require("./structurePlanner");
 
 function determineCreepRole(room) {
-    // Example logic to determine role based on room needs
-    if (needsMoreMiners(room)) return 'miner';
-    if (needsMoreHaulers(room)) return 'hauler';
-    if (needsMoreUpgraders(room)) return 'upgrader';
-    if (needsMoreRepairmen(room)) return 'repairman';
+    const totalCreeps = _.filter(Game.creeps, creep => creep.room.name === room.name).length;
+
+    // Spawn Changelings if total creeps are less than 3
+    if (totalCreeps < 3) {
+        return 'changeling';
+    }
+
+    // Once we have at least 3 creeps, focus on miners and haulers
+    if (needsMoreMiners(room)) {
+        return 'miner';
+    } else if (needsMoreHaulers(room)) {
+        return 'hauler';
+    }
+
+    // Once miners and haulers are sufficient, spawn upgraders
+    return needsMoreUpgraders(room) ? 'upgrader' : 'repairman';
 }
 
 function needsChangelings(room) {
@@ -14,25 +25,29 @@ function needsChangelings(room) {
 }
 
 function needsMoreMiners(room) {
-    const sources = room.find(FIND_SOURCES);
-    let totalMiningPositions = 0;
+    if (!room.memory.miningPositions) {
+        cacheRoomMiningPositions(room);
+    }
 
-    sources.forEach(source => {
-        // Calculate open spaces around each source
-        totalMiningPositions += findOpenSpacesAround(room, source.pos).length;
-    });
+    const totalMiningPositions = Object.keys(room.memory.miningPositions).reduce((total, sourceId) => 
+        total + room.memory.miningPositions[sourceId].length, 0);
 
     const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
     return currentMiners < totalMiningPositions;
 }
 
+
+
+
 function needsMoreHaulers(room) {
     const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
-    if (currentMiners < 2) return false;
-
     const currentHaulers = _.filter(Game.creeps, creep => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
-    return currentHaulers < currentMiners + 2;
+
+    // Ensure haulers are spawned according to the 2:1 miner-to-hauler ratio
+    return currentMiners >= 2 && currentHaulers < Math.ceil(currentMiners / 2);
 }
+
+
 
 function needsMoreUpgraders(room) {
     const currentUpgraders = _.filter(Game.creeps, creep => creep.memory.role === 'upgrader' && creep.room.name === room.name).length;
@@ -51,14 +66,8 @@ function needsMoreRepairmen(room) {
 
 
 function spawnCreep(spawn, bodyParts, role) {
-    const name = generateTyranidName(role); // Use the Tyranid naming function
-    const spawningResult = spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
-
-    if (spawningResult === OK) {
-        console.log(`Spawning new ${role}: ${name}`);
-    } else {
-        console.log(`Error spawning new ${role}: ${name}, result code: ${spawningResult}`);
-    }
+    const name = (role === 'changeling') ? 'Changeling' + Game.time : generateTyranidName(role);
+    spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
 }
 
 function spawnChangeling(spawn) {
