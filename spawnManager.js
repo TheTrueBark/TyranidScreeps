@@ -55,8 +55,9 @@ function needsMoreHaulers(room) {
 
 function needsMoreUpgraders(room) {
     const currentUpgraders = _.filter(Game.creeps, creep => creep.memory.role === 'upgrader' && creep.room.name === room.name).length;
-    return currentUpgraders < 4;
+    return currentUpgraders < 7;  // Limit to 7 upgraders
 }
+
 
 function needsMoreRepairmen(room) {
     const structuresNeedingRepair = room.find(FIND_STRUCTURES, {

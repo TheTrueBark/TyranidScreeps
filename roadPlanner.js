@@ -44,10 +44,15 @@ function planRoads(room) {
     pathsToBuild.forEach(path => {
         path.forEach(step => {
             const pos = new RoomPosition(step.x, step.y, room.name);
-            if (pos.lookFor(LOOK_STRUCTURES).some(s => s.structureType === STRUCTURE_ROAD) ||
-                pos.lookFor(LOOK_CONSTRUCTION_SITES).some(s => s.structureType === STRUCTURE_ROAD)) {
-                return; // Skip if there's already a road or road construction site
+
+            // Avoid placing roads under structures or parallel roads
+            const hasRoadOrStructure = pos.lookFor(LOOK_STRUCTURES).some(s => 
+                s.structureType === STRUCTURE_ROAD || s.structureType !== STRUCTURE_CONTROLLER);
+
+            if (hasRoadOrStructure || pos.lookFor(LOOK_CONSTRUCTION_SITES).length) {
+                return; // Skip this position
             }
+
             room.createConstructionSite(pos, STRUCTURE_ROAD);
             new RoomVisual(room.name).circle(pos, {radius: 0.3, fill: 'transparent', stroke: 'yellow'});
         });

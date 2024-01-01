@@ -123,10 +123,8 @@ function releaseMiningPositions(room) {
 function runHauler(creep) {
     // Switch state based on energy capacity
     if (creep.memory.working && creep.store.getFreeCapacity() === 0) {
-        // Set to deliver energy
         creep.memory.working = false;
     } else if (!creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
-        // Set to collect energy
         creep.memory.working = true;
     }
 
@@ -143,16 +141,23 @@ function runHauler(creep) {
         }
     } else {
         // Collect the largest dropped energy source
-        const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
-            filter: r => r.resourceType === RESOURCE_ENERGY
-        });
-        const largestSource = _.max(droppedEnergy, 'amount');
+        if (!creep.memory.energyTarget || creep.memory.energyTarget.amount === 0) {
+            const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
+                filter: r => r.resourceType === RESOURCE_ENERGY
+            });
+            const largestSource = _.max(droppedEnergy, 'amount');
+            creep.memory.energyTarget = largestSource ? largestSource.id : null;
+        }
 
-        if (largestSource && largestSource.amount && creep.pickup(largestSource) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(largestSource);
+        const energyTarget = Game.getObjectById(creep.memory.energyTarget);
+        if (energyTarget && energyTarget.amount && creep.pickup(energyTarget) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(energyTarget);
+        } else {
+            creep.memory.energyTarget = null;
         }
     }
 }
+
 
 
 // This is called "Warrior" as a screep
