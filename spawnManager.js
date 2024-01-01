@@ -1,28 +1,29 @@
+const { runChangeling, runMiner, runHauler, runUpgrader, runRepairman, releaseMiningPositions } = require('./role.AllPurpose'); // Adjust the path as needed
 const { findOpenSpacesAround, cacheRoomMiningPositions } = require("./structurePlanner");
 const { validateMiningPositions } = require('./memoryManager');
 
+
+
 function determineCreepRole(room) {
     const totalCreeps = _.filter(Game.creeps, creep => creep.room.name === room.name).length;
-
-    // Spawn Changelings if total creeps are less than 3
+    
     if (totalCreeps < 3) {
         return 'changeling';
     }
-
-    // Prioritize miners and haulers
     if (needsMoreMiners(room)) {
         return 'miner';
-    } else if (needsMoreHaulers(room)) {
+    }
+    if (needsMoreHaulers(room)) {
         return 'hauler';
     }
-
-    // Only spawn other roles if necessary
     if (needsMoreUpgraders(room)) {
         return 'upgrader';
-    } else if (needsMoreRepairmen(room)) {
+    }
+    if (needsMoreRepairmen(room)) {
         return 'repairman';
     }
 
+    return null;
 }
 
 
@@ -36,25 +37,84 @@ function needsMoreMiners(room) {
         cacheRoomMiningPositions(room);
     }
 
-    const totalMiningPositions = Object.keys(room.memory.miningPositions).reduce((total, sourceId) => 
-        total + room.memory.miningPositions[sourceId].length, 0);
+    // Adjust the logic based on RCL
+    if (room.controller.level < 3) {
+        // For low RCL, spawn miners for each mining position
+        const totalMiningPositions = Object.keys(room.memory.miningPositions).reduce((total, sourceId) => 
+            total + room.memory.miningPositions[sourceId].length, 0);
+        const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
+        return currentMiners < totalMiningPositions;
+    } else {
+        // For higher RCL, spawn advanced miners based on container positions
+        const containerPositions = getContainerPositionsNextToSources(room);
+        let availableContainerPositions = containerPositions.length;
 
-    const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
-    return currentMiners < totalMiningPositions;
+        // Check for each miner if they occupy a container position
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (creep.memory.role === 'miner' && creep.room.name === room.name) {
+                const posKey = positionToString(creep.memory.miningPosition);
+                if (containerPositions.includes(posKey)) {
+                    availableContainerPositions--;
+                }
+            }
+        }
+
+        // Return true if there are available container positions for miners
+        return availableContainerPositions > 0;
+    }
+}
+
+function getContainerPositionsNextToSources(room) {
+    let positions = [];
+    const sources = room.find(FIND_SOURCES);
+    for (const source of sources) {
+        const containers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+            filter: { structureType: STRUCTURE_CONTAINER }
+        });
+        for (const container of containers) {
+            positions.push(positionToString(container.pos));
+        }
+    }
+    return positions;
+}
+
+function positionToString(pos) {
+    return `${pos.x},${pos.y}`;
+}
+
+
+function isAdvancedMinerPositionAvailable(room) {
+    // Assuming 'advancedMinerPositions' is an array of positions for advanced miners
+    const assignedPositions = room.memory.advancedMinerPositions || [];
+    
+    return assignedPositions.some(posKey => {
+        return !_.some(Game.creeps, {
+            memory: { miningPosition: posKey, role: 'miner' }
+        });
+    });
 }
 
 function needsMoreHaulers(room) {
-    const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
-    const currentHaulers = _.filter(Game.creeps, creep => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
+    // Count the number of sources currently being mined
+    const minedSourcesCount = Object.keys(room.memory.miningPositions).filter(sourceId => {
+        return _.some(Game.creeps, { memory: { role: 'miner', miningPosition: { sourceId: sourceId } } });
+    }).length;
 
-    // Enforce a strict 1:1 ratio between miners and haulers
-    return currentHaulers < currentMiners;
+    // Count the current haulers
+    const currentHaulers = _.filter(Game.creeps, { memory: { role: 'hauler', homeRoom: room.name } }).length;
+
+    // Return true if the number of haulers is less than the number of mined sources
+    return currentHaulers < minedSourcesCount;
 }
+
 
 function needsMoreUpgraders(room) {
     const currentUpgraders = _.filter(Game.creeps, creep => creep.memory.role === 'upgrader' && creep.room.name === room.name).length;
-    return currentUpgraders < 7;  // Limit to 7 upgraders
+    const needMore = currentUpgraders < 7;
+    return needMore;
 }
+
 
 
 function needsMoreRepairmen(room) {
@@ -73,10 +133,18 @@ function needsMoreRepairmen(room) {
 
 
 function spawnCreep(spawn, bodyParts, role) {
+    if (!role) {
+        return; // Do not spawn if no role is given
+    }
+
     const name = (role === 'changeling') ? 'Changeling' + Game.time : generateTyranidName(role);
-    spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
-    validateMiningPositions(spawn.room);
+    const spawnResult = spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
+
+    if (spawnResult === OK) {
+        validateMiningPositions(spawn.room);
+    }
 }
+
 
 function spawnChangeling(spawn) {
     const bodyParts = [WORK, CARRY, MOVE];  // Basic body composition
@@ -98,10 +166,21 @@ function generateTyranidName(role) {
     return prefix + Game.time;  // e.g., "Ripper123456"
 }
 
+function getAdvancedMinerBody(room) {
+    // Calculate the number of WORK parts based on room's energy capacity
+    const maxWorkParts = Math.min(Math.floor((room.energyCapacityAvailable -50) / 100), 5);
+    const body = Array(maxWorkParts).fill(WORK);
+
+    // Adding one MOVE part to ensure creep can move efficiently
+    body.push(MOVE);
+    return body;
+    
+}
 
 module.exports = {
     determineCreepRole,
     needsChangelings,
     spawnChangeling,
-    spawnCreep
+    spawnCreep,
+    getAdvancedMinerBody,
 };

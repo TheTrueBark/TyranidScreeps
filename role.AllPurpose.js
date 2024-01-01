@@ -53,52 +53,69 @@ function runChangeling(creep) {
 
 // This is called "Ripper" as a creep
 function runMiner(creep) {
-    // Ensure creep has a mining position claimed
     if (!creep.memory.miningPosition) {
         creep.memory.miningPosition = claimMiningPosition(creep.room, creep.pos);
     }
 
+    const miningPos = creep.memory.miningPosition;
+
+    // Check if in the correct room
+    if (creep.room.name !== miningPos.roomName) {
+        // Move towards the room exit leading to the target room
+        const exitDir = creep.room.findExitTo(miningPos.roomName);
+        const exit = creep.pos.findClosestByPath(exitDir);
+        creep.moveTo(exit);
+        return;
+    }
+
     // Move to the mining position
-    const miningPos = new RoomPosition(creep.memory.miningPosition.x, creep.memory.miningPosition.y, creep.room.name);
-    if (!creep.pos.isEqualTo(miningPos)) {
-        creep.moveTo(miningPos);
+    const miningRoomPos = new RoomPosition(miningPos.x, miningPos.y, miningPos.roomName);
+    if (!creep.pos.isEqualTo(miningRoomPos)) {
+        creep.moveTo(miningRoomPos);
     } else {
-        const source = miningPos.findClosestByRange(FIND_SOURCES);
+        // Mining logic
+        const source = miningRoomPos.findClosestByRange(FIND_SOURCES);
         if (source) {
             creep.harvest(source);
         }
     }
 }
 
+
+
 function positionToString(pos) {
     return pos.x + "," + pos.y;
 }
 
 
-function claimMiningPosition(room) {
-    if (!room.memory.miningPositions) {
-        cacheRoomMiningPositions(room);
-    }
-
-    // Initialize claimedMiningPositions if not present
-    room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
-
-    for (const sourceId in room.memory.miningPositions) {
-        for (const pos of room.memory.miningPositions[sourceId]) {
-            const posKey = positionToString(pos);
-
-            // Check if position is unclaimed
+function claimMiningPosition(room, currentPos) {
+    const sources = room.find(FIND_SOURCES);
+    for (const source of sources) {
+        const openSpaces = findOpenSpacesAround(room, source.pos);
+        for (const openSpace of openSpaces) {
+            const posKey = positionToString(openSpace);
             if (!room.memory.claimedMiningPositions[posKey]) {
-                // Claim this position and return it
+                room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
                 room.memory.claimedMiningPositions[posKey] = true;
-                return pos;
+
+                // Return the position along with the room name
+                return {
+                    x: openSpace.x,
+                    y: openSpace.y,
+                    roomName: room.name  // Include the room name in the assigned position
+                };
             }
         }
     }
 
-    // Return null if no unclaimed positions are available
-    return null;
+    // Default to current position if no open spots are available
+    return {
+        x: currentPos.x,
+        y: currentPos.y,
+        roomName: room.name
+    };
 }
+
 
 function positionToString(pos) {
     return `${pos.x}_${pos.y}`;
@@ -163,9 +180,36 @@ function runHauler(creep) {
 // This is called "Warrior" as a screep
 function runUpgrader(creep) {
     if (creep.store[RESOURCE_ENERGY] === 0) {
-        // Collect energy logic...
-        collectEnergy(creep);
+        // Try to collect from containers first
+        let source = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER &&
+                         s.store[RESOURCE_ENERGY] > 0
+        });
+
+        // If no container with energy, look for dropped resources
+        if (!source) {
+            source = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+                filter: r => r.resourceType === RESOURCE_ENERGY
+            });
+        }
+
+        // If no dropped energy, take directly from a hauler
+        if (!source) {
+            source = creep.pos.findClosestByPath(FIND_MY_CREEPS, {
+                filter: c => c.memory.role === 'hauler' && 
+                             c.store[RESOURCE_ENERGY] > 0
+            });
+        }
+
+        if (source) {
+            if ((source instanceof Resource && creep.pickup(source) === ERR_NOT_IN_RANGE) ||
+                (source instanceof StructureContainer && creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) ||
+                (source instanceof Creep && creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE)) {
+                creep.moveTo(source);
+            }
+        }
     } else {
+        // Existing building and upgrading logic...
         // Prioritize building specific structures
         const priorityTypes = [STRUCTURE_EXTENSION, STRUCTURE_CONTAINER, STRUCTURE_ROAD];
         let target = null;
@@ -177,7 +221,6 @@ function runUpgrader(creep) {
             if (target) break;
         }
 
-        // If no priority structures, find any construction site
         target = target || creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
 
         if (target) {
@@ -189,6 +232,7 @@ function runUpgrader(creep) {
         }
     }
 }
+
 
 // Energy Collection Containers > Dropped > Miner
 function collectEnergy(creep) {
