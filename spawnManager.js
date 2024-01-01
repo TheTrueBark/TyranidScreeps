@@ -23,8 +23,6 @@ function determineCreepRole(room) {
         return 'repairman';
     }
 
-    // Default to upgrader if no other roles are needed
-    return 'upgrader';
 }
 
 
