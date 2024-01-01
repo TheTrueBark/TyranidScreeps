@@ -19,34 +19,37 @@ function runCreep(creep) {
 
 // They are called "Changeling" as a creep
 function runChangeling(creep) {
-    const minersPresent = _.filter(Game.creeps, c => c.memory.role === 'miner' && c.room.name === creep.room.name).length > 0;
+    const minersPresent = _.filter(Game.creeps, c => c.memory.role === 'miner' && c.room.name === creep.room.name).length >= 2;
 
-    if (minersPresent) {
-        // Switch to hauling behavior
-        runHauler(creep);
-    } else if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
-        creep.memory.working = false;
-    } else if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-        creep.memory.working = true;
-    }
+    if (!minersPresent) {
+        if (creep.memory.working && creep.store.getFreeCapacity() === 0) {
+            // Full of energy, deliver it
+            const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
+                filter: (s) => (s.structureType === STRUCTURE_SPAWN ||
+                                s.structureType === STRUCTURE_EXTENSION ||
+                                s.structureType === STRUCTURE_TOWER) &&
+                                s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+            });
 
-    if (creep.memory.working) {
-        // Deliver energy to the spawn, extensions, or towers
-        const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
-            filter: (s) => (s.structureType === STRUCTURE_SPAWN ||
-                            s.structureType === STRUCTURE_EXTENSION ||
-                            s.structureType === STRUCTURE_TOWER) &&
-                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-        });
-
-        if (target) {
-            if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(target);
+            if (target) {
+                if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target);
+                }
             }
+        } else {
+            // Mine from the closest source
+            const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+            if (source && creep.harvest(source) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(source);
+            }
+            creep.memory.working = creep.store.getFreeCapacity() === 0;
         }
-
+    } else {
+        // Miners are present, switch to hauling behavior
+        runHauler(creep);
     }
 }
+
 
 // This is called "Ripper" as a creep
 function runMiner(creep) {
@@ -73,23 +76,24 @@ function positionToString(pos) {
 
 
 function claimMiningPosition(room, currentPos) {
-    if (!room.memory.claimedMiningPositions) {
-        room.memory.claimedMiningPositions = {};
+    if (!room.memory.miningPositions) {
+        // Ensure mining positions are cached
+        cacheRoomMiningPositions(room);
     }
 
-    const sources = room.find(FIND_SOURCES);
-    for (const source of sources) {
-        const openSpaces = findOpenSpacesAround(room, source.pos);
-        for (const openSpace of openSpaces) {
-            const posKey = positionToString(openSpace);
-            if (!room.memory.claimedMiningPositions[posKey]) {
+    for (const sourceId in room.memory.miningPositions) {
+        for (const pos of room.memory.miningPositions[sourceId]) {
+            const posKey = positionToString(pos);
+            if (!room.memory.claimedMiningPositions || !room.memory.claimedMiningPositions[posKey]) {
+                room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
                 room.memory.claimedMiningPositions[posKey] = true;
-                return openSpace;
+                return new RoomPosition(pos.x, pos.y, room.name);
             }
         }
     }
-    return currentPos; // Default to current position if no open spots are available
+    return new RoomPosition(currentPos.x, currentPos.y, room.name);
 }
+
 
 
 function releaseMiningPositions(room) {
@@ -106,21 +110,18 @@ function releaseMiningPositions(room) {
 
 // This is called "Termagant" as a creep
 function runHauler(creep) {
-    if (creep.store.getFreeCapacity() > 0) {
-        // Collect energy from containers or dropped resources
-        const source = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES) ||
-                       creep.pos.findClosestByPath(FIND_STRUCTURES, {
-                           filter: s => s.structureType === STRUCTURE_CONTAINER &&
-                                        s.store[RESOURCE_ENERGY] > 0
-                       });
-        if (source) {
-            if (creep.pickup(source) === ERR_NOT_IN_RANGE || creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(source);
-            }
-        }
-    } else {
+    // Switch state based on energy capacity
+    if (creep.memory.working && creep.store.getFreeCapacity() === 0) {
+        // Set to deliver energy
+        creep.memory.working = false;
+    } else if (!creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+        // Set to collect energy
+        creep.memory.working = true;
+    }
+
+    if (!creep.memory.working) {
         // Deliver energy to the spawn, extensions, or towers
-        const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+        const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
             filter: s => (s.structureType === STRUCTURE_SPAWN ||
                           s.structureType === STRUCTURE_EXTENSION ||
                           s.structureType === STRUCTURE_TOWER) &&
@@ -129,8 +130,19 @@ function runHauler(creep) {
         if (target && creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
             creep.moveTo(target);
         }
+    } else {
+        // Collect the largest dropped energy source
+        const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
+            filter: r => r.resourceType === RESOURCE_ENERGY
+        });
+        const largestSource = _.max(droppedEnergy, 'amount');
+
+        if (largestSource && largestSource.amount && creep.pickup(largestSource) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(largestSource);
+        }
     }
 }
+
 
 // This is called "Warrior" as a screep
 function runUpgrader(creep) {

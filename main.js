@@ -46,8 +46,25 @@ module.exports.loop = function () {
         const spawns = room.find(FIND_MY_SPAWNS);
         if (spawns.length > 0) {
             const role = spawnManager.determineCreepRole(room);
-            const bodyParts = [WORK, CARRY, MOVE]; // Example body parts, adjust based on role and available energy
-            spawnManager.spawnCreep(spawns[0], bodyParts, role);
+            let bodyParts;
+
+            switch (role) {
+                case 'miner':
+                bodyParts = [WORK, WORK, MOVE]; // Example for a miner
+                break;
+            case 'hauler':
+                bodyParts = [CARRY, CARRY, MOVE]; // Example for a hauler
+                break;
+            case 'changeling':
+                bodyParts = [WORK, CARRY, MOVE]; // Example for a changeling
+                break;
+            // Add cases for other roles
+            default:
+                bodyParts = [WORK, CARRY, MOVE]; // Default composition
+            }
+
+        spawnManager.spawnCreep(spawns[0], bodyParts, role);
+
         }
     }
 

@@ -2,6 +2,9 @@ function findOpenSpacesAround(room, point) {
     const terrain = room.getTerrain();
     let openSpaces = [];
 
+    // Retrieve the spawn position if it exists
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+
     // Generate a unique key for the point
     const pointKey = point.x + "_" + point.y;
 
@@ -37,6 +40,11 @@ function findOpenSpacesAround(room, point) {
 
     // Filter out the actual point itself
     openSpaces = openSpaces.filter(pos => !(pos.x === point.x && pos.y === point.y));
+
+    // Filter out the spawn position if it exists
+    if (spawn) {
+        openSpaces = openSpaces.filter(pos => !pos.isEqualTo(spawn.pos));
+    }
 
     // Save results in memory
     room.memory.openSpaces = room.memory.openSpaces || {};
