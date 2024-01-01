@@ -8,6 +8,11 @@ function determineCreepRole(room) {
     if (needsMoreRepairmen(room)) return 'repairman';
 }
 
+function needsChangelings(room) {
+    // Check if there are no active creeps in the room
+    return _.filter(Game.creeps, creep => creep.room.name === room.name).length === 0;
+}
+
 function needsMoreMiners(room) {
     const sources = room.find(FIND_SOURCES);
     let totalMiningPositions = 0;
@@ -46,12 +51,40 @@ function needsMoreRepairmen(room) {
 
 
 function spawnCreep(spawn, bodyParts, role) {
-    // Logic to spawn a new creep with the given body parts and role
-    const name = role + Game.time; // Generate a unique name
-    spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
+    const name = generateTyranidName(role); // Use the Tyranid naming function
+    const spawningResult = spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
+
+    if (spawningResult === OK) {
+        console.log(`Spawning new ${role}: ${name}`);
+    } else {
+        console.log(`Error spawning new ${role}: ${name}, result code: ${spawningResult}`);
+    }
 }
+
+function spawnChangeling(spawn) {
+    const bodyParts = [WORK, CARRY, MOVE];  // Basic body composition
+    const name = 'Changeling' + Game.time;  // Unique name
+
+    return spawn.spawnCreep(bodyParts, name, { memory: { role: 'changeling' } });
+}
+
+
+function generateTyranidName(role) {
+    const tyranidPrefixes = {
+        'miner': 'Ripper',
+        'hauler': 'Termagant',
+        'upgrader': 'Warrior',
+        'repairman': 'Hormagaunt'
+    };
+
+    const prefix = tyranidPrefixes[role] || 'Tyranid';
+    return prefix + Game.time;  // e.g., "Ripper123456"
+}
+
 
 module.exports = {
     determineCreepRole,
+    needsChangelings,
+    spawnChangeling,
     spawnCreep
 };

@@ -1,3 +1,5 @@
+const { findOpenSpacesAround } = require("./structurePlanner");
+
 function runCreep(creep) {
     switch (creep.memory.role) {
         case 'miner':
@@ -15,20 +17,172 @@ function runCreep(creep) {
     }
 }
 
-function runMiner(creep) {
-    // Miner behavior implementation
+function runChangeling(creep) {
+    // Check if the creep is full or needs to collect energy
+    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+        creep.memory.working = false;
+    } else if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
+        creep.memory.working = true;
+    }
+
+    if (creep.memory.working) {
+        // Deliver energy to the spawn, extensions, or towers
+        const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
+            filter: (s) => (s.structureType === STRUCTURE_SPAWN ||
+                            s.structureType === STRUCTURE_EXTENSION ||
+                            s.structureType === STRUCTURE_TOWER) &&
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        });
+
+        if (target) {
+            if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target);
+            }
+        }
+    } else {
+        // Mine from the closest source
+        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        if (source && creep.harvest(source) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(source);
+        }
+    }
 }
+
+
+
+function runMiner(creep) {
+    // Ensure creep has a mining position claimed
+    if (!creep.memory.miningPosition) {
+        creep.memory.miningPosition = claimMiningPosition(creep.room, creep.pos);
+    }
+
+    // Move to the mining position
+    const miningPos = new RoomPosition(creep.memory.miningPosition.x, creep.memory.miningPosition.y, creep.room.name);
+    if (!creep.pos.isEqualTo(miningPos)) {
+        creep.moveTo(miningPos);
+    } else {
+        const source = miningPos.findClosestByRange(FIND_SOURCES);
+        if (source) {
+            creep.harvest(source);
+        }
+    }
+}
+
+
+function claimMiningPosition(room, currentPos) {
+    const sources = room.find(FIND_SOURCES);
+    for (const source of sources) {
+        const openSpaces = findOpenSpacesAround(room, source.pos);
+        for (const openSpace of openSpaces) {
+            if (!room.memory.claimedMiningPositions || !room.memory.claimedMiningPositions[openSpace]) {
+                room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
+                room.memory.claimedMiningPositions[openSpace] = true;
+                return openSpace;
+            }
+        }
+    }
+    return currentPos; // Default to current position if no open spots are available
+}
+
+function releaseMiningPositions(room) {
+    for (const name in Memory.creeps) {
+        if (!Game.creeps[name] && Memory.creeps[name].role === 'miner') {
+            const pos = Memory.creeps[name].miningPosition;
+            if (pos && room.memory.claimedMiningPositions && room.memory.claimedMiningPositions[pos]) {
+                delete room.memory.claimedMiningPositions[pos];
+            }
+            delete Memory.creeps[name];  // Clean up dead creep memory
+        }
+    }
+}
+
 
 function runHauler(creep) {
-    // Hauler behavior implementation
+    if (creep.store.getFreeCapacity() > 0) {
+        // Collect energy from containers or dropped resources
+        const source = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES) ||
+                       creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                           filter: s => s.structureType === STRUCTURE_CONTAINER &&
+                                        s.store[RESOURCE_ENERGY] > 0
+                       });
+        if (source) {
+            if (creep.pickup(source) === ERR_NOT_IN_RANGE || creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(source);
+            }
+        }
+    } else {
+        // Deliver energy to the spawn, extensions, or towers
+        const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => (s.structureType === STRUCTURE_SPAWN ||
+                          s.structureType === STRUCTURE_EXTENSION ||
+                          s.structureType === STRUCTURE_TOWER) &&
+                         s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        });
+        if (target && creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(target);
+        }
+    }
 }
 
-// ... Implement runUpgrader and runRepairman similarly
+function runUpgrader(creep) {
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+        // Collect energy logic...
+    } else {
+        // Prioritize building specific structures
+        const priorityTypes = [STRUCTURE_EXTENSION, STRUCTURE_CONTAINER, STRUCTURE_ROAD];
+        let target = null;
+        
+        for (const type of priorityTypes) {
+            target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {
+                filter: (s) => s.structureType === type
+            });
+            if (target) break;
+        }
 
-function claimMiningPosition(source) {
-    // Logic to claim an available spot next to the source
+        // If no priority structures, find any construction site
+        target = target || creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+
+        if (target) {
+            if (creep.build(target) === ERR_NOT_IN_RANGE) {
+                creep.moveTo(target);
+            }
+        } else if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(creep.room.controller);
+        }
+    }
 }
 
-function releaseMiningPosition(position) {
-    // Logic to release the spot when the miner dies or is repurposed
+
+
+function runRepairman(creep) {
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+        // Collect energy from containers
+        const source = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER &&
+                         s.store[RESOURCE_ENERGY] > 0
+        });
+        if (source && creep.withdraw(source, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(source);
+        }
+    } else {
+        // Repair damaged structures
+        const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.hits < s.hitsMax
+        });
+        if (target && creep.repair(target) === ERR_NOT_IN_RANGE) {
+            creep.moveTo(target);
+        }
+    }
+}
+
+
+module.exports = {
+    runChangeling,
+    runCreep,
+    runMiner,
+    runHauler,
+    runUpgrader,
+    runRepairman,
+    releaseMiningPositions,
+
 }
