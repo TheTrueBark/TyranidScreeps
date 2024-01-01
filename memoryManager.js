@@ -1,4 +1,5 @@
 const { cacheRoomMiningPositions } = require('./structurePlanner');
+const { positionToString } = require('./role.AllPurpose');
 
 function cleanUpMemory() {
     for (const name in Memory.creeps) {
@@ -16,34 +17,14 @@ function validateMiningPositions(room) {
     // Clear the current claimed mining positions
     room.memory.claimedMiningPositions = {};
 
-    // Repopulate claimedMiningPositions based on current miners
-    for (const sourceId in room.memory.miningPositions) {
-        room.memory.miningPositions[sourceId].forEach(pos => {
-            const posKey = positionToString(pos);
-
-            // Check if the position is currently assigned to a miner
-            const isAssigned = _.some(Game.creeps, creep => 
-                creep.memory.role === 'miner' && 
-                creep.memory.miningPosition && 
-                positionToString(creep.memory.miningPosition) === posKey
-            );
-
-            if (isAssigned) {
-                room.memory.claimedMiningPositions[posKey] = true;
-            }
-        });
-    }
-
-    // Ensure the spawn location is not considered a valid mining position
-    const spawns = room.find(FIND_MY_SPAWNS);
-    spawns.forEach(spawn => {
-        const spawnKey = positionToString(spawn.pos);
-        delete room.memory.claimedMiningPositions[spawnKey];
+    // Iterate through all miners and update claimed positions
+    const miners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name);
+    miners.forEach(miner => {
+        if (miner.memory.miningPosition) {
+            const posKey = positionToString(miner.memory.miningPosition);
+            room.memory.claimedMiningPositions[posKey] = true;
+        }
     });
-}
-
-function positionToString(pos) {
-    return `${pos.x}_${pos.y}`;
 }
 
 

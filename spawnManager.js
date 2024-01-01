@@ -9,19 +9,24 @@ function determineCreepRole(room) {
         return 'changeling';
     }
 
-    // Once we have at least 3 creeps, focus on miners and haulers
+    // Prioritize miners and haulers
     if (needsMoreMiners(room)) {
         return 'miner';
     } else if (needsMoreHaulers(room)) {
         return 'hauler';
-    } else if (needsMoreUpgraders(room)) {
-        return 'hauler';
+    }
+
+    // Only spawn other roles if necessary
+    if (needsMoreUpgraders(room)) {
+        return 'upgrader';
     } else if (needsMoreRepairmen(room)) {
         return 'repairman';
     }
 
-
+    // Default to upgrader if no other roles are needed
+    return 'upgrader';
 }
+
 
 function needsChangelings(room) {
     // Check if there are no active creeps in the room
@@ -44,8 +49,8 @@ function needsMoreHaulers(room) {
     const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
     const currentHaulers = _.filter(Game.creeps, creep => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
 
-    // Corrected ratio check
-    return currentMiners > 0 && currentHaulers < Math.ceil(currentMiners / 2);
+    // Enforce a strict 1:1 ratio between miners and haulers
+    return currentHaulers < currentMiners;
 }
 
 function needsMoreUpgraders(room) {

@@ -75,24 +75,35 @@ function positionToString(pos) {
 }
 
 
-function claimMiningPosition(room, currentPos) {
+function claimMiningPosition(room) {
     if (!room.memory.miningPositions) {
-        // Ensure mining positions are cached
         cacheRoomMiningPositions(room);
     }
+
+    // Initialize claimedMiningPositions if not present
+    room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
 
     for (const sourceId in room.memory.miningPositions) {
         for (const pos of room.memory.miningPositions[sourceId]) {
             const posKey = positionToString(pos);
-            if (!room.memory.claimedMiningPositions || !room.memory.claimedMiningPositions[posKey]) {
-                room.memory.claimedMiningPositions = room.memory.claimedMiningPositions || {};
+
+            // Check if position is unclaimed
+            if (!room.memory.claimedMiningPositions[posKey]) {
+                // Claim this position and return it
                 room.memory.claimedMiningPositions[posKey] = true;
-                return new RoomPosition(pos.x, pos.y, room.name);
+                return pos;
             }
         }
     }
-    return new RoomPosition(currentPos.x, currentPos.y, room.name);
+
+    // Return null if no unclaimed positions are available
+    return null;
 }
+
+function positionToString(pos) {
+    return `${pos.x}_${pos.y}`;
+}
+
 
 
 
@@ -242,5 +253,6 @@ module.exports = {
     runUpgrader,
     runRepairman,
     releaseMiningPositions,
+    positionToString,
 
 }
