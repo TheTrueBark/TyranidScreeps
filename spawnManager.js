@@ -6,7 +6,7 @@ const { validateMiningPositions } = require('./memoryManager');
 
 function determineCreepRole(room) {
     const totalCreeps = _.filter(Game.creeps, creep => creep.room.name === room.name).length;
-    
+
     if (totalCreeps < 3) {
         return 'changeling';
     }
@@ -23,8 +23,25 @@ function determineCreepRole(room) {
         return 'repairman';
     }
 
-    return null;
+    // Check for spawning a scout
+    if (shouldSpawnScout(room)) {
+        return 'scout';
+    }
+
+    return null; // No role needed
 }
+
+function shouldSpawnScout(room) {
+    // Check if there are no scouts in the room or globally
+    const scouts = _.filter(Game.creeps, { memory: { role: 'scout' } });
+    const hasNoScouts = scouts.length === 0;
+
+    // Check if there is enough energy to spawn a scout
+    const hasEnoughEnergy = room.energyAvailable >= BODYPART_COST[MOVE];
+
+    return hasNoScouts && hasEnoughEnergy;
+}
+
 
 
 function needsChangelings(room) {
@@ -37,9 +54,8 @@ function needsMoreMiners(room) {
         cacheRoomMiningPositions(room);
     }
 
-    // Adjust the logic based on RCL
-    if (room.controller.level < 3) {
-        // For low RCL, spawn miners for each mining position
+    if (room.controller.level < 2) {
+        // For low RCL, spawn basic miners for each mining position
         const totalMiningPositions = Object.keys(room.memory.miningPositions).reduce((total, sourceId) => 
             total + room.memory.miningPositions[sourceId].length, 0);
         const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name).length;
@@ -47,23 +63,21 @@ function needsMoreMiners(room) {
     } else {
         // For higher RCL, spawn advanced miners based on container positions
         const containerPositions = getContainerPositionsNextToSources(room);
-        let availableContainerPositions = containerPositions.length;
+        const currentMiners = _.filter(Game.creeps, creep => creep.memory.role === 'miner' && creep.room.name === room.name);
 
-        // Check for each miner if they occupy a container position
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (creep.memory.role === 'miner' && creep.room.name === room.name) {
-                const posKey = positionToString(creep.memory.miningPosition);
-                if (containerPositions.includes(posKey)) {
-                    availableContainerPositions--;
-                }
+        let occupiedContainerPositions = new Set();
+        currentMiners.forEach(creep => {
+            const posKey = positionToString(creep.memory.miningPosition);
+            if (containerPositions.includes(posKey)) {
+                occupiedContainerPositions.add(posKey);
             }
-        }
+        });
 
         // Return true if there are available container positions for miners
-        return availableContainerPositions > 0;
+        return occupiedContainerPositions.size < containerPositions.length;
     }
 }
+
 
 function getContainerPositionsNextToSources(room) {
     let positions = [];
@@ -96,17 +110,20 @@ function isAdvancedMinerPositionAvailable(room) {
 }
 
 function needsMoreHaulers(room) {
-    // Count the number of sources currently being mined
-    const minedSourcesCount = Object.keys(room.memory.miningPositions).filter(sourceId => {
-        return _.some(Game.creeps, { memory: { role: 'miner', miningPosition: { sourceId: sourceId } } });
-    }).length;
+    // Count the number of active mining sources
+    const activeMiningSources = _.filter(Game.creeps, (creep) => 
+        creep.memory.role === 'miner' && creep.room.name === room.name
+    ).length;
 
-    // Count the current haulers
-    const currentHaulers = _.filter(Game.creeps, { memory: { role: 'hauler', homeRoom: room.name } }).length;
+    // Count the current number of haulers in the room
+    const currentHaulers = _.filter(Game.creeps, (creep) => 
+        creep.memory.role === 'hauler' && creep.room.name === room.name
+    ).length;
 
-    // Return true if the number of haulers is less than the number of mined sources
-    return currentHaulers < minedSourcesCount;
+    // Limit haulers to the number of active mining sources
+    return currentHaulers < activeMiningSources;
 }
+
 
 
 function needsMoreUpgraders(room) {
@@ -133,17 +150,43 @@ function needsMoreRepairmen(room) {
 
 
 function spawnCreep(spawn, bodyParts, role) {
-    if (!role) {
-        return; // Do not spawn if no role is given
+    if (!role) return; // Do not spawn if no role is given
+
+    let name;
+    let memory;
+
+    if (role === 'scout') {
+        // Special case for spawning a scout
+        name = 'Scout' + Game.time;
+        bodyParts = [MOVE]; // Scout only needs MOVE parts
+        memory = {
+            role: 'scout',
+            homeRoom: spawn.room.name,
+            scoutedRooms: {},
+            currentTarget: findInitialScoutingTarget(spawn.room) // Function to find initial scouting target
+        };
+    } else {
+        // Standard case for other roles
+        name = (role === 'changeling') ? 'Changeling' + Game.time : generateTyranidName(role);
+        memory = { role: role };
     }
 
-    const name = (role === 'changeling') ? 'Changeling' + Game.time : generateTyranidName(role);
-    const spawnResult = spawn.spawnCreep(bodyParts, name, { memory: { role: role } });
+    const spawnResult = spawn.spawnCreep(bodyParts, name, { memory: memory });
 
-    if (spawnResult === OK) {
+    if (spawnResult === OK && role !== 'scout') {
         validateMiningPositions(spawn.room);
     }
 }
+
+// Function to determine the initial target room for scouting
+function findInitialScoutingTarget(room) {
+    const exits = Game.map.describeExits(room.name);
+    // Select a random exit room as the initial target
+    const exitRoomNames = Object.values(exits);
+    return exitRoomNames.length > 0 ? exitRoomNames[Math.floor(Math.random() * exitRoomNames.length)] : null;
+}
+
+
 
 
 function spawnChangeling(spawn) {
@@ -159,7 +202,8 @@ function generateTyranidName(role) {
         'miner': 'Ripper',
         'hauler': 'Termagant',
         'upgrader': 'Warrior',
-        'repairman': 'Hormagaunt'
+        'repairman': 'Hormagaunt',
+        'scout' : 'Genestealer',
     };
 
     const prefix = tyranidPrefixes[role] || 'Tyranid';

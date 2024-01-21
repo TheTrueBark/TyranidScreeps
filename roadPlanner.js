@@ -44,19 +44,26 @@ function planRoads(room) {
     pathsToBuild.forEach(path => {
         path.forEach(step => {
             const pos = new RoomPosition(step.x, step.y, room.name);
-
-            // Avoid placing roads under structures or parallel roads
-            const hasRoadOrStructure = pos.lookFor(LOOK_STRUCTURES).some(s => 
-                s.structureType === STRUCTURE_ROAD || s.structureType !== STRUCTURE_CONTROLLER);
-
-            if (hasRoadOrStructure || pos.lookFor(LOOK_CONSTRUCTION_SITES).length) {
+    
+            // Check for existing structures or construction sites
+            const structures = pos.lookFor(LOOK_STRUCTURES);
+            const isObstructed = structures.some(s => 
+                s.structureType !== STRUCTURE_ROAD && 
+                s.structureType !== STRUCTURE_CONTAINER);
+    
+            // Check for sources or controller at the position
+            const isSourceOrController = pos.lookFor(LOOK_SOURCES).length > 0 || 
+                                         pos.isEqualTo(controller.pos);
+    
+            if (isObstructed || isSourceOrController || pos.lookFor(LOOK_CONSTRUCTION_SITES).length) {
                 return; // Skip this position
             }
-
+    
             room.createConstructionSite(pos, STRUCTURE_ROAD);
             new RoomVisual(room.name).circle(pos, {radius: 0.3, fill: 'transparent', stroke: 'yellow'});
         });
     });
+    
 }
 
 module.exports = { planRoads };

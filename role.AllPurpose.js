@@ -146,19 +146,34 @@ function runHauler(creep) {
     }
 
     if (!creep.memory.working) {
-        // Deliver energy to the spawn, extensions, or towers
-        const target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
-            filter: s => (s.structureType === STRUCTURE_SPAWN ||
-                          s.structureType === STRUCTURE_EXTENSION ||
-                          s.structureType === STRUCTURE_TOWER) &&
-                         s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        // First, try to deliver energy to the spawn and extensions
+        let target = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
+            filter: (s) => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) &&
+                           s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
         });
-        if (target && creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(target);
+
+        // If no spawn or extension needs energy, find any construction site
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        }
+
+        // Move to target and perform action
+        if (target) {
+            if (target.structureType) {
+                // If the target is a structure, transfer energy
+                if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target);
+                }
+            } else {
+                // If the target is a construction site, build
+                if (creep.build(target) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target);
+                }
+            }
         }
     } else {
         // Collect the largest dropped energy source
-        if (!creep.memory.energyTarget || creep.memory.energyTarget.amount === 0) {
+        if (!creep.memory.energyTarget || !Game.getObjectById(creep.memory.energyTarget)) {
             const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
                 filter: r => r.resourceType === RESOURCE_ENERGY
             });
@@ -174,6 +189,7 @@ function runHauler(creep) {
         }
     }
 }
+
 
 
 
